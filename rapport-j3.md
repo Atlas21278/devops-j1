@@ -386,4 +386,4 @@ vagrant ssh app-prod1 -c "sudo systemctl start todolist"
 
 ---
 
-*C'est fini, bravo !*
+

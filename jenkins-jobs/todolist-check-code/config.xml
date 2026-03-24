@@ -1,0 +1,85 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<project>
+  <description>Security check (pipenv) + unit tests Django — se lance à chaque commit</description>
+  <keepDependencies>false</keepDependencies>
+
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.StringParameterDefinition>
+          <name>GIT_VERSION</name>
+          <defaultValue>main</defaultValue>
+          <description>Branche ou tag Git à tester (ex: main, v1.0.0)</description>
+        </hudson.model.StringParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+
+  <!-- Ex9 - Source depuis GitHub -->
+  <scm class="hudson.plugins.git.GitSCM" plugin="git">
+    <configVersion>2</configVersion>
+    <userRemoteConfigs>
+      <hudson.plugins.git.UserRemoteConfig>
+        <url>https://github.com/gaeldb/to-do-list.git</url>
+      </hudson.plugins.git.UserRemoteConfig>
+    </userRemoteConfigs>
+    <branches>
+      <hudson.plugins.git.BranchSpec>
+        <!-- Ex6 - supporte branch ET tag -->
+        <name>${GIT_VERSION}</name>
+      </hudson.plugins.git.BranchSpec>
+    </branches>
+    <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
+    <submoduleCfg class="empty-list"/>
+    <extensions/>
+  </scm>
+
+  <!-- Ex7 - Déclenchement automatique à chaque commit (poll toutes les 5 min) -->
+  <triggers>
+    <hudson.triggers.SCMTrigger>
+      <spec>H/5 * * * *</spec>
+      <ignorePostCommitHooks>false</ignorePostCommitHooks>
+    </hudson.triggers.SCMTrigger>
+  </triggers>
+
+  <concurrentBuild>false</concurrentBuild>
+
+  <builders>
+    <hudson.tasks.Shell>
+      <command>
+#!/bin/bash
+set -e
+
+echo "=== Version testée : ${GIT_VERSION} ==="
+
+# Environnement Python isolé
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Installation des dépendances
+pip install --upgrade pip
+pip install pipenv
+
+# Ex2 - Security check des dépendances
+echo "--- Security check (pipenv check) ---"
+pipenv install
+pipenv check
+
+# Ex2 - Tests unitaires Django
+echo "--- Tests unitaires Django ---"
+pip install django==5.2.10
+python manage.py test
+      </command>
+    </hudson.tasks.Shell>
+  </builders>
+
+  <publishers/>
+  <buildWrappers>
+    <!-- Ex6 - Nom du build mis à jour avec la version -->
+    <org.jenkinsci.plugins.buildnamesetter.BuildNameSetter plugin="build-name-setter">
+      <template>#${BUILD_NUMBER} - ${GIT_VERSION}</template>
+      <runAtStart>true</runAtStart>
+      <runAtEnd>false</runAtEnd>
+    </org.jenkinsci.plugins.buildnamesetter.BuildNameSetter>
+  </buildWrappers>
+</project>

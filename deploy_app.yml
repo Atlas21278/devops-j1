@@ -1,0 +1,121 @@
+---
+- name: Deploy todolist (GitHub + vars + systemd + checks)
+  hosts: my_infra
+  become: true
+  gather_facts: false
+
+  vars:
+    repo_url: "https://github.com/gaeldb/to-do-list.git"
+    repo_branch: "main"
+    app_dir: /opt/todolist
+    venv_dir: /opt/todolist/.venv
+    app_port: 8000
+    django_version: "5.2.10"
+
+  tasks:
+    # ---------- Base packages ----------
+    - name: Install system packages
+      ansible.builtin.apt:
+        update_cache: true
+        name:
+          - git
+          - python3
+          - python3-venv
+          - python3-pip
+        state: present
+
+    - name: Ensure app directory exists
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: admin
+        group: admin
+        mode: "0755"
+
+    # ---------- Sources from GitHub (Ex9) ----------
+    - name: Clone or update repository from GitHub
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_branch }}"
+        force: true
+      become_user: admin
+
+    # ---------- Python venv + deps ----------
+    - name: Ensure virtualenv exists
+      ansible.builtin.command: "python3 -m venv {{ venv_dir }}"
+      args:
+        creates: "{{ venv_dir }}/bin/activate"
+
+    - name: Upgrade pip in venv
+      ansible.builtin.pip:
+        virtualenv: "{{ venv_dir }}"
+        name: pip
+        state: latest
+
+    - name: Install python dependencies (Django + gunicorn) in venv
+      ansible.builtin.pip:
+        virtualenv: "{{ venv_dir }}"
+        name:
+          - "django=={{ django_version }}"
+          - "gunicorn"
+        state: present
+
+    # ---------- Django settings (Ex12) ----------
+    - name: Set DEBUG in todo/settings.py (dev/prod via host_vars)
+      ansible.builtin.lineinfile:
+        path: "{{ app_dir }}/todo/settings.py"
+        regexp: '^DEBUG\s*='
+        line: "DEBUG = {{ django_debug | bool }}"
+        create: false
+
+    - name: Set ALLOWED_HOSTS in todo/settings.py
+      ansible.builtin.lineinfile:
+        path: "{{ app_dir }}/todo/settings.py"
+        regexp: '^ALLOWED_HOSTS\s*='
+        line: "ALLOWED_HOSTS = ['localhost','127.0.0.1','{{ app_ip }}']"
+        create: false
+
+    # ---------- DB migrations ----------
+    - name: Run database migrations (sqlite)
+      ansible.builtin.command: "{{ venv_dir }}/bin/python manage.py migrate"
+      args:
+        chdir: "{{ app_dir }}"
+
+    # ---------- systemd service (Ex13) ----------
+    - name: Install todolist systemd service
+      ansible.builtin.template:
+        src: templates/todolist.service.j2
+        dest: /etc/systemd/system/todolist.service
+        mode: "0644"
+
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Enable and restart todolist service
+      ansible.builtin.systemd:
+        name: todolist
+        enabled: true
+        state: restarted
+
+    # ---------- Automated checks (Ex11) ----------
+    - name: Check app locally on the VM (127.0.0.1)
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ app_port }}/"
+        status_code: [200, 302]
+      register: local_check
+      retries: 10
+      delay: 2
+      until: local_check.status in [200, 302]
+
+    - name: Check app from controller to VM IP (app_ip)
+      ansible.builtin.uri:
+        url: "http://{{ app_ip }}:{{ app_port }}/"
+        status_code: [200, 302]
+      delegate_to: localhost
+      become: false
+      register: ext_check
+      retries: 10
+      delay: 2
+      until: ext_check.status in [200, 302]

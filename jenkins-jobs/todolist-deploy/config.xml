@@ -1,0 +1,82 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<project>
+  <description>Déploiement todolist — cible et version sélectionnables via paramètres</description>
+  <keepDependencies>false</keepDependencies>
+
+  <!-- Ex4 + Ex6 - Paramètres -->
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+
+        <!-- Ex4 - Menu déroulant pour choisir la cible -->
+        <hudson.model.ChoiceParameterDefinition>
+          <name>DEPLOY_TARGET</name>
+          <choices class="java.util.Arrays$ArrayList">
+            <a class="string-array">
+              <string>app-dev</string>
+              <string>app-prod1</string>
+            </a>
+          </choices>
+          <description>Serveur cible du déploiement</description>
+        </hudson.model.ChoiceParameterDefinition>
+
+        <!-- Ex6 - Version (branche ou tag) -->
+        <hudson.model.StringParameterDefinition>
+          <name>GIT_VERSION</name>
+          <defaultValue>main</defaultValue>
+          <description>Branche ou tag Git à déployer (ex: main, v1.0.0)</description>
+        </hudson.model.StringParameterDefinition>
+
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+
+  <!-- Clone le repo devops contenant le playbook Ansible -->
+  <scm class="hudson.plugins.git.GitSCM" plugin="git">
+    <configVersion>2</configVersion>
+    <userRemoteConfigs>
+      <hudson.plugins.git.UserRemoteConfig>
+        <!-- REMPLACER par l'URL de votre repo GitHub contenant le playbook -->
+        <url>https://github.com/Atlas21278/devops-j1.git</url>
+      </hudson.plugins.git.UserRemoteConfig>
+    </userRemoteConfigs>
+    <branches>
+      <hudson.plugins.git.BranchSpec>
+        <name>main</name>
+      </hudson.plugins.git.BranchSpec>
+    </branches>
+    <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
+    <submoduleCfg class="empty-list"/>
+    <extensions/>
+  </scm>
+
+  <triggers/>
+  <concurrentBuild>false</concurrentBuild>
+
+  <builders>
+    <hudson.tasks.Shell>
+      <command>
+#!/bin/bash
+set -e
+
+echo "=== Déploiement sur ${DEPLOY_TARGET} — version ${GIT_VERSION} ==="
+
+ansible-playbook deploy_app.yml \
+  -i inventory-prod.yaml \
+  --limit "${DEPLOY_TARGET}" \
+  --extra-vars "repo_branch=${GIT_VERSION}"
+      </command>
+    </hudson.tasks.Shell>
+  </builders>
+
+  <publishers/>
+
+  <!-- Ex4+6 - Nom du build mis à jour avec cible + version -->
+  <buildWrappers>
+    <org.jenkinsci.plugins.buildnamesetter.BuildNameSetter plugin="build-name-setter">
+      <template>#${BUILD_NUMBER} - ${DEPLOY_TARGET} - ${GIT_VERSION}</template>
+      <runAtStart>true</runAtStart>
+      <runAtEnd>false</runAtEnd>
+    </org.jenkinsci.plugins.buildnamesetter.BuildNameSetter>
+  </buildWrappers>
+</project>

@@ -1,0 +1,117 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job">
+  <description>CI complet : check-code → deploy. Lance automatiquement toutes les heures. Notifications Discord.</description>
+  <keepDependencies>false</keepDependencies>
+
+  <!-- Ex5+6 - Paramètres passés aux jobs enfants -->
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+
+        <hudson.model.ChoiceParameterDefinition>
+          <name>DEPLOY_TARGET</name>
+          <choices class="java.util.Arrays$ArrayList">
+            <a class="string-array">
+              <string>app-dev</string>
+              <string>app-prod1</string>
+            </a>
+          </choices>
+          <description>Serveur cible du déploiement</description>
+        </hudson.model.ChoiceParameterDefinition>
+
+        <hudson.model.StringParameterDefinition>
+          <name>GIT_VERSION</name>
+          <defaultValue>main</defaultValue>
+          <description>Branche ou tag Git (ex: main, v1.0.0)</description>
+        </hudson.model.StringParameterDefinition>
+
+        <!-- Ex9 - Webhook Discord (peut aussi être une credential Jenkins) -->
+        <hudson.model.StringParameterDefinition>
+          <name>DISCORD_WEBHOOK</name>
+          <defaultValue>https://discord.com/api/webhooks/VOTRE_WEBHOOK</defaultValue>
+          <description>URL du webhook Discord pour les notifications</description>
+        </hudson.model.StringParameterDefinition>
+
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+
+  <!-- Ex8 - Déclenchement automatique toutes les heures -->
+  <triggers>
+    <hudson.triggers.TimerTrigger>
+      <spec>H * * * *</spec>
+    </hudson.triggers.TimerTrigger>
+  </triggers>
+
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps">
+    <script>
+pipeline {
+    agent any
+
+    parameters {
+        choice(name: 'DEPLOY_TARGET', choices: ['app-dev', 'app-prod1'], description: 'Serveur cible')
+        string(name: 'GIT_VERSION', defaultValue: 'main', description: 'Branche ou tag Git')
+        string(name: 'DISCORD_WEBHOOK', defaultValue: 'https://discord.com/api/webhooks/VOTRE_WEBHOOK', description: 'Webhook Discord')
+    }
+
+    // Ex8 - Toutes les heures
+    triggers {
+        cron('H * * * *')
+    }
+
+    stages {
+
+        // Ex5 - Stage 1 : vérification du code
+        stage('Check Code') {
+            steps {
+                echo "=== Lancement de todolist-check-code (version: ${params.GIT_VERSION}) ==="
+                build job: 'todolist-check-code',
+                      parameters: [string(name: 'GIT_VERSION', value: "${params.GIT_VERSION}")],
+                      propagate: true,   // arrête la chaîne si échec
+                      wait: true
+            }
+        }
+
+        // Ex5 - Stage 2 : déploiement (uniquement si check-code réussi)
+        stage('Deploy') {
+            steps {
+                echo "=== Lancement de todolist-deploy (cible: ${params.DEPLOY_TARGET}, version: ${params.GIT_VERSION}) ==="
+                build job: 'todolist-deploy',
+                      parameters: [
+                          string(name: 'DEPLOY_TARGET', value: "${params.DEPLOY_TARGET}"),
+                          string(name: 'GIT_VERSION',   value: "${params.GIT_VERSION}")
+                      ],
+                      propagate: true,
+                      wait: true
+            }
+        }
+    }
+
+    // Ex9 - Notifications Discord
+    post {
+        success {
+            script {
+                def msg = "✅ **todolist-ci SUCCESS** | Env: `${params.DEPLOY_TARGET}` | Version: `${params.GIT_VERSION}` | Build: #${env.BUILD_NUMBER}"
+                sh """
+                    curl -s -H "Content-Type: application/json" \
+                         -d '{"content": "${msg}"}' \
+                         "${params.DISCORD_WEBHOOK}"
+                """
+            }
+        }
+        failure {
+            script {
+                def msg = "❌ **todolist-ci FAILED** | Env: `${params.DEPLOY_TARGET}` | Version: `${params.GIT_VERSION}` | Build: #${env.BUILD_NUMBER} | Voir: ${env.BUILD_URL}"
+                sh """
+                    curl -s -H "Content-Type: application/json" \
+                         -d '{"content": "${msg}"}' \
+                         "${params.DISCORD_WEBHOOK}"
+                """
+            }
+        }
+    }
+}
+    </script>
+    <sandbox>true</sandbox>
+  </definition>
+</flow-definition>

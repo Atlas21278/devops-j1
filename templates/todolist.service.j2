@@ -1,0 +1,15 @@
+[Unit]
+Description=Todolist Django app (gunicorn)
+After=network.target
+
+[Service]
+User=admin
+Group=admin
+WorkingDirectory={{ app_dir }}
+Environment=DJANGO_SETTINGS_MODULE=todo.settings
+ExecStart={{ venv_dir }}/bin/gunicorn --bind 0.0.0.0:{{ app_port }} todo.wsgi:application
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

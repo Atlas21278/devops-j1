@@ -1,0 +1,49 @@
+---
+- name: Install Grafana on monitoring VM
+  hosts: monitoring
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Install dependencies
+      ansible.builtin.apt:
+        update_cache: true
+        name:
+          - apt-transport-https
+          - software-properties-common
+          - wget
+          - gnupg2
+        state: present
+
+    - name: Add Grafana GPG key
+      ansible.builtin.shell:
+        cmd: wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor -o /usr/share/keyrings/grafana.gpg
+        creates: /usr/share/keyrings/grafana.gpg
+
+    - name: Add Grafana repo
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/grafana.list
+        content: "deb [signed-by=/usr/share/keyrings/grafana.gpg] https://apt.grafana.com stable main\n"
+        mode: "0644"
+
+    - name: Install Grafana
+      ansible.builtin.apt:
+        update_cache: true
+        name: grafana
+        state: present
+
+    - name: Enable and start Grafana
+      ansible.builtin.systemd:
+        name: grafana-server
+        enabled: true
+        state: started
+
+    - name: Wait for Grafana to be ready
+      ansible.builtin.uri:
+        url: "http://192.168.56.15:3000/api/health"
+        status_code: 200
+      delegate_to: localhost
+      become: false
+      retries: 15
+      delay: 5
+      until: true

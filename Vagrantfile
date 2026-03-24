@@ -117,6 +117,35 @@ EOF
     SHELL
   end
 
+  # --- VM Monitoring ---
+  config.vm.define "monitoring" do |mon|
+    mon.vm.hostname = "monitoring"
+    mon.vm.network "private_network", ip: "192.168.56.15", virtualbox__hostonly: "VirtualBox Host-Only Ethernet Adapter"
+    mon.vm.provider "virtualbox" do |vb|
+      vb.memory = 1024
+      vb.cpus = 1
+    end
+
+    mon.vm.provision "shell", inline: <<-SHELL
+      set -e
+      apt-get update -y
+      apt-get install -y sudo
+
+      id -u admin >/dev/null 2>&1 || useradd -m -s /bin/bash admin
+      echo "admin ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/admin
+
+      mkdir -p /home/admin/.ssh
+      chmod 700 /home/admin/.ssh
+
+      cat <<'EOF' >/home/admin/.ssh/authorized_keys
+#{File.read("id-rda-infra.key.pub")}
+EOF
+
+      chmod 600 /home/admin/.ssh/authorized_keys
+      chown -R admin:admin /home/admin/.ssh
+    SHELL
+  end
+
   # --- VM Jenkins ---
   config.vm.define "jenkins" do |jk|
     jk.vm.hostname = "jenkins"

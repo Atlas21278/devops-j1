@@ -1,0 +1,122 @@
+---
+# ---------- node_exporter sur app-prod1 et app-prod2 ----------
+- name: Install node_exporter on app servers
+  hosts: my_infra
+  become: true
+  gather_facts: false
+
+  vars:
+    node_exporter_version: "1.7.0"
+
+  tasks:
+    - name: Download node_exporter
+      ansible.builtin.get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+        dest: /tmp/node_exporter.tar.gz
+        mode: "0644"
+
+    - name: Extract node_exporter
+      ansible.builtin.unarchive:
+        src: /tmp/node_exporter.tar.gz
+        dest: /tmp/
+        remote_src: true
+
+    - name: Copy node_exporter binary
+      ansible.builtin.copy:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+        dest: /usr/local/bin/node_exporter
+        remote_src: true
+        mode: "0755"
+
+    - name: Create node_exporter systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/node_exporter.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Node Exporter
+          After=network.target
+
+          [Service]
+          ExecStart=/usr/local/bin/node_exporter
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start node_exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        daemon_reload: true
+        enabled: true
+        state: started
+
+# ---------- django-prometheus sur app-prod1 et app-prod2 ----------
+- name: Install django-prometheus on app servers
+  hosts: my_infra
+  become: true
+  gather_facts: false
+
+  vars:
+    app_dir: /opt/todolist
+    venv_dir: /opt/todolist/.venv
+
+  tasks:
+    - name: Install django-prometheus in venv
+      ansible.builtin.pip:
+        virtualenv: "{{ venv_dir }}"
+        name: django-prometheus
+        state: present
+
+    - name: Patch settings.py with django-prometheus (INSTALLED_APPS + MIDDLEWARE)
+      ansible.builtin.shell: |
+        python3 - <<'EOF'
+        import re
+
+        path = '/opt/todolist/todo/settings.py'
+        with open(path, 'r') as f:
+            content = f.read()
+
+        # Add django_prometheus to INSTALLED_APPS if not already there
+        if 'django_prometheus' not in content:
+            content = re.sub(
+                r"(INSTALLED_APPS\s*=\s*\[)",
+                r"\1\n    'django_prometheus',",
+                content
+            )
+
+        # Add PrometheusBeforeMiddleware after MIDDLEWARE = [ if not already there
+        if 'PrometheusBeforeMiddleware' not in content:
+            content = re.sub(
+                r"(MIDDLEWARE\s*=\s*\[)",
+                r"\1\n    'django_prometheus.middleware.PrometheusBeforeMiddleware',",
+                content
+            )
+
+        # Add PrometheusAfterMiddleware before the closing ] of MIDDLEWARE if not already there
+        if 'PrometheusAfterMiddleware' not in content:
+            content = re.sub(
+                r"('django\.middleware\.clickjacking\.XFrameOptionsMiddleware',)",
+                r"\1\n    'django_prometheus.middleware.PrometheusAfterMiddleware',",
+                content
+            )
+
+        with open(path, 'w') as f:
+            f.write(content)
+        print('settings.py patched successfully')
+        EOF
+      args:
+        executable: /bin/bash
+
+    - name: Add prometheus URLs include to urls.py
+      ansible.builtin.blockinfile:
+        path: "{{ app_dir }}/todo/urls.py"
+        marker: "# {mark} ANSIBLE PROMETHEUS"
+        block: |
+          from django.urls import include
+          urlpatterns += [path('', include('django_prometheus.urls'))]
+
+    - name: Restart todolist service
+      ansible.builtin.systemd:
+        name: todolist
+        state: restarted

@@ -1,0 +1,140 @@
+---
+- name: Install Prometheus on monitoring VM
+  hosts: monitoring
+  become: true
+  gather_facts: false
+
+  vars:
+    prometheus_version: "2.51.2"
+    prometheus_dir: /opt/prometheus
+    prometheus_user: prometheus
+
+  tasks:
+    - name: Install dependencies
+      ansible.builtin.apt:
+        update_cache: true
+        name:
+          - wget
+          - tar
+        state: present
+
+    - name: Create prometheus user
+      ansible.builtin.user:
+        name: "{{ prometheus_user }}"
+        shell: /sbin/nologin
+        create_home: false
+        system: true
+
+    - name: Create prometheus directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ prometheus_user }}"
+        group: "{{ prometheus_user }}"
+        mode: "0755"
+      loop:
+        - "{{ prometheus_dir }}"
+        - /etc/prometheus
+        - /var/lib/prometheus
+
+    - name: Download Prometheus
+      ansible.builtin.get_url:
+        url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+        dest: /tmp/prometheus.tar.gz
+        mode: "0644"
+
+    - name: Extract Prometheus
+      ansible.builtin.unarchive:
+        src: /tmp/prometheus.tar.gz
+        dest: /tmp/
+        remote_src: true
+
+    - name: Copy prometheus binaries
+      ansible.builtin.copy:
+        src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        remote_src: true
+        mode: "0755"
+      loop:
+        - prometheus
+        - promtool
+
+    - name: Copy console files
+      ansible.builtin.copy:
+        src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64/{{ item }}"
+        dest: "/etc/prometheus/{{ item }}"
+        remote_src: true
+      loop:
+        - consoles
+        - console_libraries
+
+    - name: Deploy prometheus.yml config
+      ansible.builtin.copy:
+        dest: /etc/prometheus/prometheus.yml
+        owner: "{{ prometheus_user }}"
+        group: "{{ prometheus_user }}"
+        mode: "0644"
+        content: |
+          global:
+            scrape_interval: 15s
+            evaluation_interval: 15s
+
+          scrape_configs:
+            - job_name: "prometheus"
+              static_configs:
+                - targets: ["localhost:9090"]
+
+            - job_name: "node_exporter"
+              static_configs:
+                - targets:
+                    - "192.168.56.11:9100"
+                    - "192.168.56.13:9100"
+
+            - job_name: "haproxy"
+              static_configs:
+                - targets:
+                    - "192.168.56.14:8405"
+
+            - job_name: "django"
+              static_configs:
+                - targets:
+                    - "192.168.56.11:8000"
+                    - "192.168.56.13:8000"
+              metrics_path: /metrics
+
+    - name: Create systemd service for Prometheus
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/prometheus.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Prometheus
+          After=network.target
+
+          [Service]
+          User=prometheus
+          ExecStart=/usr/local/bin/prometheus \
+            --config.file=/etc/prometheus/prometheus.yml \
+            --storage.tsdb.path=/var/lib/prometheus \
+            --web.listen-address=0.0.0.0:9090
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start Prometheus
+      ansible.builtin.systemd:
+        name: prometheus
+        daemon_reload: true
+        enabled: true
+        state: started
+
+    - name: Check Prometheus is responding
+      ansible.builtin.uri:
+        url: "http://192.168.56.15:9090/-/ready"
+        status_code: 200
+      delegate_to: localhost
+      become: false
+      retries: 10
+      delay: 3
+      until: true

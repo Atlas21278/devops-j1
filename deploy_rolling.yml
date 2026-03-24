@@ -1,0 +1,66 @@
+---
+- name: Rolling update todolist (1 server at a time)
+  hosts: my_infra
+  become: true
+  gather_facts: false
+  serial: 1
+
+  vars:
+    repo_url: "https://github.com/gaeldb/to-do-list.git"
+    repo_branch: "{{ git_version | default('main') }}"
+    app_dir: /opt/todolist
+    venv_dir: /opt/todolist/.venv
+
+  tasks:
+    # ---------- Pre-check : app must be up before we touch it ----------
+    - name: Check app is responding before update
+      ansible.builtin.uri:
+        url: "http://{{ app_ip }}:8000/"
+        status_code: [200, 302]
+      delegate_to: localhost
+      become: false
+
+    # ---------- Pull latest code ----------
+    - name: Pull latest code from GitHub
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_branch }}"
+        force: true
+      become_user: admin
+
+    # ---------- Restore settings after git pull ----------
+    - name: Set DEBUG in settings.py
+      ansible.builtin.lineinfile:
+        path: "{{ app_dir }}/todo/settings.py"
+        regexp: '^DEBUG\s*='
+        line: "DEBUG = {{ django_debug | bool }}"
+
+    - name: Set ALLOWED_HOSTS in settings.py
+      ansible.builtin.lineinfile:
+        path: "{{ app_dir }}/todo/settings.py"
+        regexp: '^ALLOWED_HOSTS\s*='
+        line: "ALLOWED_HOSTS = ['localhost','127.0.0.1','{{ app_ip }}','192.168.56.14']"
+
+    # ---------- Apply DB migrations ----------
+    - name: Run database migrations
+      ansible.builtin.command: "{{ venv_dir }}/bin/python manage.py migrate"
+      args:
+        chdir: "{{ app_dir }}"
+
+    # ---------- Restart service ----------
+    - name: Restart todolist service
+      ansible.builtin.systemd:
+        name: todolist
+        state: restarted
+
+    # ---------- Post-check : verify app is back up ----------
+    - name: Wait for app to be back up after update
+      ansible.builtin.uri:
+        url: "http://{{ app_ip }}:8000/"
+        status_code: [200, 302]
+      delegate_to: localhost
+      become: false
+      retries: 10
+      delay: 3
+      until: true

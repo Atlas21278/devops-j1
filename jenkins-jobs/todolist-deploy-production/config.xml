@@ -1,0 +1,65 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<project>
+  <description>Rolling update todolist sur app-prod1 et app-prod2</description>
+  <keepDependencies>false</keepDependencies>
+
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+
+        <hudson.model.StringParameterDefinition>
+          <name>GIT_VERSION</name>
+          <defaultValue>main</defaultValue>
+          <description>Branche ou tag Git à déployer (ex: main, v1.0.0)</description>
+        </hudson.model.StringParameterDefinition>
+
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+
+  <scm class="hudson.plugins.git.GitSCM" plugin="git">
+    <configVersion>2</configVersion>
+    <userRemoteConfigs>
+      <hudson.plugins.git.UserRemoteConfig>
+        <url>https://github.com/Atlas21278/devops-j1.git</url>
+      </hudson.plugins.git.UserRemoteConfig>
+    </userRemoteConfigs>
+    <branches>
+      <hudson.plugins.git.BranchSpec>
+        <name>master</name>
+      </hudson.plugins.git.BranchSpec>
+    </branches>
+    <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
+    <submoduleCfg class="empty-list"/>
+    <extensions/>
+  </scm>
+
+  <triggers/>
+  <concurrentBuild>false</concurrentBuild>
+
+  <builders>
+    <hudson.tasks.Shell>
+      <command>
+#!/bin/bash
+set -e
+
+echo "=== Rolling update production — version ${GIT_VERSION} ==="
+
+ansible-playbook deploy_rolling.yml \
+  -i inventory-prod.yaml \
+  --limit "app-prod1,app-prod2" \
+  --extra-vars "git_version=${GIT_VERSION}"
+      </command>
+    </hudson.tasks.Shell>
+  </builders>
+
+  <publishers/>
+
+  <buildWrappers>
+    <org.jenkinsci.plugins.buildnamesetter.BuildNameSetter plugin="build-name-setter">
+      <template>#${BUILD_NUMBER} - production - ${GIT_VERSION}</template>
+      <runAtStart>true</runAtStart>
+      <runAtEnd>false</runAtEnd>
+    </org.jenkinsci.plugins.buildnamesetter.BuildNameSetter>
+  </buildWrappers>
+</project>

@@ -59,6 +59,64 @@ EOF
     SHELL
   end
 
+  # --- VM PROD 2 ---
+  config.vm.define "app-prod2" do |prod2|
+    prod2.vm.hostname = "app-prod2"
+    prod2.vm.network "private_network", ip: "192.168.56.13", virtualbox__hostonly: "VirtualBox Host-Only Ethernet Adapter"
+    prod2.vm.provider "virtualbox" do |vb|
+      vb.memory = 1024
+      vb.cpus = 1
+    end
+
+    prod2.vm.provision "shell", inline: <<-SHELL
+      set -e
+      apt-get update -y
+      apt-get install -y sudo
+
+      id -u admin >/dev/null 2>&1 || useradd -m -s /bin/bash admin
+      echo "admin ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/admin
+
+      mkdir -p /home/admin/.ssh
+      chmod 700 /home/admin/.ssh
+
+      cat <<'EOF' >/home/admin/.ssh/authorized_keys
+#{File.read("id-rda-infra.key.pub")}
+EOF
+
+      chmod 600 /home/admin/.ssh/authorized_keys
+      chown -R admin:admin /home/admin/.ssh
+    SHELL
+  end
+
+  # --- VM Load Balancer ---
+  config.vm.define "lb-prod" do |lb|
+    lb.vm.hostname = "lb-prod"
+    lb.vm.network "private_network", ip: "192.168.56.14", virtualbox__hostonly: "VirtualBox Host-Only Ethernet Adapter"
+    lb.vm.provider "virtualbox" do |vb|
+      vb.memory = 512
+      vb.cpus = 1
+    end
+
+    lb.vm.provision "shell", inline: <<-SHELL
+      set -e
+      apt-get update -y
+      apt-get install -y sudo haproxy
+
+      id -u admin >/dev/null 2>&1 || useradd -m -s /bin/bash admin
+      echo "admin ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/admin
+
+      mkdir -p /home/admin/.ssh
+      chmod 700 /home/admin/.ssh
+
+      cat <<'EOF' >/home/admin/.ssh/authorized_keys
+#{File.read("id-rda-infra.key.pub")}
+EOF
+
+      chmod 600 /home/admin/.ssh/authorized_keys
+      chown -R admin:admin /home/admin/.ssh
+    SHELL
+  end
+
   # --- VM Jenkins ---
   config.vm.define "jenkins" do |jk|
     jk.vm.hostname = "jenkins"

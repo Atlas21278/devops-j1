@@ -73,7 +73,7 @@
       ansible.builtin.lineinfile:
         path: "{{ app_dir }}/todo/settings.py"
         regexp: '^ALLOWED_HOSTS\s*='
-        line: "ALLOWED_HOSTS = ['localhost','127.0.0.1','{{ app_ip }}']"
+        line: "ALLOWED_HOSTS = ['localhost','127.0.0.1','{{ app_ip }}','192.168.56.14']"
         create: false
 
     # ---------- DB migrations ----------
